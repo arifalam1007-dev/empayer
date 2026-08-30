@@ -6,6 +6,9 @@
    or Supabase (supabase.auth.signInWithOAuth / signUp). The rest of
    the app only consumes the `User` shape below, so nothing else
    needs to change.
+
+   Every storage access is guarded so the game keeps working even in
+   sandboxed iframes where localStorage throws.
    ============================================================ */
 import { create } from "zustand";
 
@@ -24,14 +27,39 @@ interface StoredUser extends User {
 const USERS_KEY = "be_users_v1";
 const SESSION_KEY = "be_session_v1";
 
+/* --- storage access that never throws --- */
+const storage = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, val: string) {
+    try {
+      localStorage.setItem(key, val);
+    } catch {
+      /* sandboxed / full — play in-memory */
+    }
+  },
+  del(key: string) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+
 const readUsers = (): Record<string, StoredUser> => {
   try {
-    return JSON.parse(localStorage.getItem(USERS_KEY) || "{}");
+    return JSON.parse(storage.get(USERS_KEY) || "{}");
   } catch {
     return {};
   }
 };
-const writeUsers = (u: Record<string, StoredUser>) => localStorage.setItem(USERS_KEY, JSON.stringify(u));
+const writeUsers = (u: Record<string, StoredUser>) => storage.set(USERS_KEY, JSON.stringify(u));
 
 /** demo-grade hash — replace with real auth provider later */
 export const djb2 = (s: string) => {
@@ -53,21 +81,25 @@ interface AuthStore {
   signOut: () => void;
 }
 
-export const useAuth = create<AuthStore>((set, get) => ({
+export const useAuth = create<AuthStore>((set) => ({
   user: null,
   busy: false,
 
   boot: () => {
-    const sess = localStorage.getItem(SESSION_KEY);
-    if (!sess) return;
-    if (sess.startsWith("guest")) {
-      set({ user: { uid: "guest", name: "Guest Tycoon", email: "guest@local", provider: "guest", createdAt: Date.now() } });
-      return;
-    }
-    const u = readUsers()[sess];
-    if (u) {
-      const { hash: _h, ...pub } = u;
-      set({ user: pub });
+    try {
+      const sess = storage.get(SESSION_KEY);
+      if (!sess) return;
+      if (sess.startsWith("guest")) {
+        set({ user: { uid: "guest", name: "Guest Tycoon", email: "guest@local", provider: "guest", createdAt: Date.now() } });
+        return;
+      }
+      const u = readUsers()[sess];
+      if (u) {
+        const { hash: _h, ...pub } = u;
+        set({ user: pub });
+      }
+    } catch {
+      /* never crash the app over storage */
     }
   },
 
@@ -81,7 +113,7 @@ export const useAuth = create<AuthStore>((set, get) => ({
     const u: StoredUser = { uid: mkUid(), name: name.trim(), email, provider: "email", createdAt: Date.now(), hash: djb2(pass) };
     users[email] = u;
     writeUsers(users);
-    localStorage.setItem(SESSION_KEY, email);
+    storage.set(SESSION_KEY, email);
     const { hash: _h, ...pub } = u;
     set({ user: pub });
     return null;
@@ -92,7 +124,7 @@ export const useAuth = create<AuthStore>((set, get) => ({
     const u = readUsers()[email];
     if (!u) return "No account found for this email.";
     if (u.hash !== djb2(pass)) return "Wrong password. Try again.";
-    localStorage.setItem(SESSION_KEY, email);
+    storage.set(SESSION_KEY, email);
     const { hash: _h, ...pub } = u;
     set({ user: pub });
     return null;
@@ -110,20 +142,19 @@ export const useAuth = create<AuthStore>((set, get) => ({
         users[email] = u;
         writeUsers(users);
       }
-      localStorage.setItem(SESSION_KEY, email);
+      storage.set(SESSION_KEY, email);
       const { hash: _h, ...pub } = u;
       set({ user: pub, busy: false });
     }, 700);
   },
 
   guest: () => {
-    localStorage.setItem(SESSION_KEY, "guest");
+    storage.set(SESSION_KEY, "guest");
     set({ user: { uid: "guest", name: "Guest Tycoon", email: "guest@local", provider: "guest", createdAt: Date.now() } });
   },
 
   signOut: () => {
-    localStorage.removeItem(SESSION_KEY);
+    storage.del(SESSION_KEY);
     set({ user: null });
-    void get;
   },
 }));
