@@ -3,6 +3,7 @@ import { useAuth } from "../store/auth";
 import { useGame, type View } from "../store/game";
 import { fmtMoney, fmtRate, levelInfo, netWorth, tierFor, titleFor, totalIncome } from "../game/data";
 import { Bar, Icon, Modal } from "./ui";
+import Contact from "./Contact";
 
 const NAV: { id: View; label: string; icon: string }[] = [
   { id: "dashboard", label: "Dashboard", icon: "grid" },
@@ -181,7 +182,10 @@ export default function Shell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl px-4 pt-5 pb-28 sm:px-6 lg:pb-12">{children}</main>
+        <main className="mx-auto w-full max-w-6xl px-4 pt-5 pb-28 sm:px-6 lg:pb-12">
+          {children}
+          <Contact />
+        </main>
       </div>
 
       {/* mobile bottom nav */}
